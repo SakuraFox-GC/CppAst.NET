@@ -3,13 +3,14 @@
 // See license.txt file in the project root for full license information.
 
 using System;
+using System.Collections.Generic;
 
 namespace CppAst
 {
     /// <summary>
     /// A C++ function parameter.
     /// </summary>
-    public sealed class CppParameter : CppDeclaration, ICppMember
+    public sealed class CppParameter : CppDeclaration, ICppMember, ICppAttributeContainer
     {
         /// <summary>
         /// Creates a new instance of a C++ function parameter.
@@ -20,6 +21,9 @@ namespace CppAst
         {
             Type = type ?? throw new ArgumentNullException(nameof(type));
             Name = name ?? throw new ArgumentNullException(nameof(name));
+            Attributes = new List<CppAttribute>();
+            TokenAttributes = new List<CppAttribute>();
+            MetaAttributes = new MetaAttributeMap();
         }
 
         /// <summary>
@@ -51,5 +55,14 @@ namespace CppAst
 
             return InitExpression != null ? $"{Type.GetDisplayName()} {Name} = {InitExpression}" : $"{Type.GetDisplayName()} {Name}";
         }
+
+        /// <inheritdoc/>
+        public List<CppAttribute> Attributes { get; }
+
+        /// <inheritdoc/>
+        public List<CppAttribute> TokenAttributes { get; }
+
+        /// <inheritdoc/>
+        public MetaAttributeMap MetaAttributes { get; }
     }
 }

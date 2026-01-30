@@ -94,6 +94,11 @@ namespace CppAst
         }
 
         /// <summary>
+        /// Gets or sets the source span of the function body implementation.
+        /// </summary>
+        public CppSourceSpan? BodySpan { get; set; }
+
+        /// <summary>
         /// Gets or sets the flags of this function.
         /// </summary>
         public CppFunctionFlags Flags { get; set; }

@@ -37,6 +37,7 @@ namespace CppAst
             ParseSystemIncludes = true;
             ParseTokenAttributes = false;
             ParseCommentAttribute = false;
+            ParseFunctionBodies = false;
 
             // Default triple targets
             TargetCpu = IntPtr.Size == 8 ? CppTargetCpu.X86_64 : CppTargetCpu.X86;
@@ -100,6 +101,11 @@ namespace CppAst
         /// Gets or sets a boolean indicating whether to parse comment attributes. Default is <c>false</c>
         /// </summary>
         public bool ParseCommentAttribute { get; set; }
+
+        /// <summary>
+        /// Gets or sets a boolean indicating whether to parse function bodies. Default is <c>false</c>
+        /// </summary>
+        public bool ParseFunctionBodies { get; set; }
 
         /// <summary>
         /// Sets <see cref="ParseMacros"/> to <c>true</c> and return this instance.

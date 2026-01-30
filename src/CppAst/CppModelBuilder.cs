@@ -1549,11 +1549,69 @@ namespace CppAst
 
             //We need ignore the function define out in the class definition here(Otherwise it will has two same functions here~)!
             var semKind = cursor.SemanticParent.Kind;
-            if ((semKind == CXCursorKind.CXCursor_StructDecl || 
+            bool isMethodDefinedOutsideClass = (semKind == CXCursorKind.CXCursor_StructDecl || 
                 semKind == CXCursorKind.CXCursor_ClassDecl ||
                 semKind == CXCursorKind.CXCursor_ClassTemplate)
-                && cursor.LexicalParent != cursor.SemanticParent)
+                && cursor.LexicalParent != cursor.SemanticParent;
+
+            if (isMethodDefinedOutsideClass)
             {
+                // Find the previously created function in the class and update its BodySpan
+                if (cppClass != null)
+                {
+                    CppFunction existingFunction = null;
+
+                    // Search in Functions, Constructors, and Destructors
+                    foreach (var func in cppClass.Functions)
+                    {
+                        if (func.Name == functionName)
+                        {
+                            existingFunction = func;
+                            break;
+                        }
+                    }
+
+                    if (existingFunction == null)
+                    {
+                        foreach (var ctor in cppClass.Constructors)
+                        {
+                            if (ctor.Name == functionName)
+                            {
+                                existingFunction = ctor;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (existingFunction == null)
+                    {
+                        foreach (var dtor in cppClass.Destructors)
+                        {
+                            if (dtor.Name == functionName)
+                            {
+                                existingFunction = dtor;
+                                break;
+                            }
+                        }
+                    }
+
+                    // If we found the existing function, update its BodySpan
+                    if (existingFunction != null && cursor.IsDefinition)
+                    {
+                        cursor.VisitChildren((childCursor, functionCursor, clientData) =>
+                        {
+                            if (childCursor.Kind == CXCursorKind.CXCursor_CompoundStmt)
+                            {
+                                var bodyStart = GetSourceLocation(childCursor.Extent.Start);
+                                var bodyEnd = GetSourceLocation(childCursor.Extent.End);
+                                existingFunction.BodySpan = new CppSourceSpan(bodyStart, bodyEnd);
+                                return CXChildVisitResult.CXChildVisit_Break;
+                            }
+                            return CXChildVisitResult.CXChildVisit_Continue;
+                        }, new CXClientData((IntPtr)data));
+                    }
+                }
+
                 return null;
             }
 
@@ -1648,6 +1706,21 @@ namespace CppAst
 
             ParseAttributes(cursor, cppFunction, true);
             cppFunction.CallingConvention = GetCallingConvention(cursor.Type);
+
+            if (cursor.IsDefinition)
+            {
+                cursor.VisitChildren((childCursor, functionCursor, clientData) =>
+                {
+                    if (childCursor.Kind == CXCursorKind.CXCursor_CompoundStmt)
+                    {
+                        var bodyStart = GetSourceLocation(childCursor.Extent.Start);
+                        var bodyEnd = GetSourceLocation(childCursor.Extent.End);
+                        cppFunction.BodySpan = new CppSourceSpan(bodyStart, bodyEnd);
+                        return CXChildVisitResult.CXChildVisit_Break;
+                    }
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }, new CXClientData((IntPtr)data));
+            }
 
             int i = 0;
             cursor.VisitChildren((argCursor, functionCursor, clientData) =>

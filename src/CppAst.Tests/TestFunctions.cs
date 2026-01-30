@@ -1,4 +1,6 @@
 using NUnit.Framework;
+using System;
+using System.IO;
 
 namespace CppAst.Tests
 {
@@ -351,6 +353,154 @@ void function0(int a, int b, float (*callback)(void*, double));
                     }
                 }
             );
+        }
+
+        [Test]
+        public void TestFunctionBody()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_function_body.h";
+            
+            var text = @"
+void function0();
+int function1(int a, float b) {
+    return a + (int)b;
+}
+float function2(int x);
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+            
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(3, compilation.Functions.Count);
+
+            {
+                var cppFunction = compilation.Functions[0];
+                Assert.AreEqual("function0", cppFunction.Name);
+                Assert.IsNull(cppFunction.BodySpan);
+            }
+
+            {
+                var cppFunction = compilation.Functions[1];
+                Assert.AreEqual("function1", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan);
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = compilation.Functions[2];
+                Assert.AreEqual("function2", cppFunction.Name);
+                Assert.IsNull(cppFunction.BodySpan);
+            }
+        }
+
+        [Test]
+        public void TestInlineMethodBody()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_inline_method_body.h";
+            
+            var text = @"
+typedef unsigned int ImWchar;
+
+class ImFont {
+public:
+    bool IsGlyphInFont(ImWchar c)
+    {
+        return false;
+    }
+    
+    bool AnotherMethod(ImWchar c) {
+        if (c == 0) return true;
+        return false;
+    }
+};
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+            
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(1, compilation.Classes.Count);
+            
+            var cls = compilation.Classes[0];
+            Assert.AreEqual("ImFont", cls.Name);
+            Assert.AreEqual(2, cls.Functions.Count);
+
+            {
+                var cppFunction = cls.Functions[0];
+                Assert.AreEqual("IsGlyphInFont", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan, "IsGlyphInFont should have BodySpan - this is the bug reported");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = cls.Functions[1];
+                Assert.AreEqual("AnotherMethod", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan, "AnotherMethod should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+        }
+
+        [Test]
+        public void TestMethodDefinitionOutsideClass()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_method_outside_class.h";
+            
+            var text = @"
+typedef unsigned int ImWchar;
+
+class ImFont {
+public:
+    bool IsGlyphInFont(ImWchar c);
+};
+
+bool ImFont::IsGlyphInFont(ImWchar c)
+{
+    return false;
+}
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+            
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(1, compilation.Classes.Count);
+            
+            var cls = compilation.Classes[0];
+            Assert.AreEqual("ImFont", cls.Name);
+            
+
+            Assert.AreEqual(1, cls.Functions.Count);
+
+            {
+                var cppFunction = cls.Functions[0];
+                Assert.AreEqual("IsGlyphInFont", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan, "IsGlyphInFont should have BodySpan - this is the bug reported (method defined outside class)");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
         }
 
 

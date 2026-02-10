@@ -1,4 +1,7 @@
 using NUnit.Framework;
+using System;
+using System.Collections.Generic;
+using System.IO;
 
 namespace CppAst.Tests
 {
@@ -224,7 +227,7 @@ int function1();
                         Assert.True(cppFunction.IsPublicExport());
                     }
                 },
-                new CppParserOptions() {  }
+                new CppParserOptions() { }
             );
 
             ParseAssert(text,
@@ -353,7 +356,356 @@ void function0(int a, int b, float (*callback)(void*, double));
             );
         }
 
+        [Test]
+        public void TestFunctionBody()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_function_body.h";
 
+            var text = @"
+void function0();
+int function1(int a, float b) {
+    return a + (int)b;
+}
+float function2(int x);
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(3, compilation.Functions.Count);
+
+            {
+                var cppFunction = compilation.Functions[0];
+                Assert.AreEqual("function0", cppFunction.Name);
+                Assert.IsNull(cppFunction.BodySpan);
+            }
+
+            {
+                var cppFunction = compilation.Functions[1];
+                Assert.AreEqual("function1", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan);
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = compilation.Functions[2];
+                Assert.AreEqual("function2", cppFunction.Name);
+                Assert.IsNull(cppFunction.BodySpan);
+            }
+        }
+
+        [Test]
+        public void TestInlineMethodBody()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_inline_method_body.h";
+
+            var text = @"
+typedef unsigned int ImWchar;
+
+class ImFont {
+public:
+    bool IsGlyphInFont(ImWchar c)
+    {
+        return false;
+    }
+    
+    bool AnotherMethod(ImWchar c) {
+        if (c == 0) return true;
+        return false;
+    }
+};
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(1, compilation.Classes.Count);
+
+            var cls = compilation.Classes[0];
+            Assert.AreEqual("ImFont", cls.Name);
+            Assert.AreEqual(2, cls.Functions.Count);
+
+            {
+                var cppFunction = cls.Functions[0];
+                Assert.AreEqual("IsGlyphInFont", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan, "IsGlyphInFont should have BodySpan - this is the bug reported");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = cls.Functions[1];
+                Assert.AreEqual("AnotherMethod", cppFunction.Name);
+                Assert.IsNotNull(cppFunction.BodySpan, "AnotherMethod should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+        }
+
+        [Test]
+        public void TestFunctionOverloadBodySpan()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_function_overload_body.h";
+
+            var text = @"
+int process(int x)
+{
+    return x * 2;
+}
+
+int process(float y)
+{
+    return (int)(y * 3.0f);
+}
+
+int process(int x, int y)
+{
+    return x + y;
+}
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(3, compilation.Functions.Count);
+
+            {
+                var cppFunction = compilation.Functions[0];
+                Assert.AreEqual("process", cppFunction.Name);
+                Assert.AreEqual(1, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "process(int) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = compilation.Functions[1];
+                Assert.AreEqual("process", cppFunction.Name);
+                Assert.AreEqual(1, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "process(float) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = compilation.Functions[2];
+                Assert.AreEqual("process", cppFunction.Name);
+                Assert.AreEqual(2, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "process(int, int) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+            HashSet<int> startLines = new HashSet<int>();
+            foreach (var function in compilation.Functions)
+            {
+                Assert.True(startLines.Add(function.BodySpan.Value.Start.Line));
+            }
+        }
+
+        [Test]
+        public void TestMethodOverloadBodySpan()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_method_overload_body.h";
+
+            var text = @"
+class Calculator {
+public:
+    int calculate(int x) {
+        return x * 2;
+    }
+
+    int calculate(float y) {
+        return (int)(y * 3.0f);
+    }
+
+    int calculate(int x, int y) {
+        return x + y;
+    }
+};
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(1, compilation.Classes.Count);
+
+            var cls = compilation.Classes[0];
+            Assert.AreEqual("Calculator", cls.Name);
+            Assert.AreEqual(3, cls.Functions.Count);
+
+            {
+                var cppFunction = cls.Functions[0];
+                Assert.AreEqual("calculate", cppFunction.Name);
+                Assert.AreEqual(1, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "calculate(int) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = cls.Functions[1];
+                Assert.AreEqual("calculate", cppFunction.Name);
+                Assert.AreEqual(1, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "calculate(float) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = cls.Functions[2];
+                Assert.AreEqual("calculate", cppFunction.Name);
+                Assert.AreEqual(2, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "calculate(int, int) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            HashSet<int> startLines = new HashSet<int>();
+            foreach (var function in cls.Functions)
+            {
+                Assert.True(startLines.Add(function.BodySpan.Value.Start.Line));
+            }
+        }
+
+        [Test]
+        public void TestMethodOverloadDefinitionOutsideClassBodySpan()
+        {
+            var options = new CppParserOptions();
+            options.ParseFunctionBodies = true;
+            var headerFilename = "test_method_overload_outside_class_body.h";
+
+            var text = @"
+class Calculator {
+public:
+    int calculate(int x);
+    int calculate(float y);
+    int calculate(int x, int y);
+};
+
+int Calculator::calculate(int x)
+{
+    return x * 2;
+}
+
+int Calculator::calculate(float y)
+{
+    return (int)(y * 3.0f);
+}
+
+int Calculator::calculate(int x, int y)
+{
+    return x + y;
+}
+
+class Calculator2 {
+public:
+    int calculate(int x);
+    int calculate(float y);
+    int calculate(int x, int y);
+};
+
+int Calculator2::calculate(int x)
+{
+    return x * 2;
+}
+
+int Calculator2::calculate(float y)
+{
+    return (int)(y * 3.0f);
+}
+
+int Calculator2::calculate(int x, int y)
+{
+    return x + y;
+}
+";
+
+            var currentDirectory = Environment.CurrentDirectory;
+            var headerFile = Path.Combine(currentDirectory, headerFilename);
+            File.WriteAllText(headerFile, text);
+
+            var compilation = CppParser.ParseFile(headerFile, options);
+
+            Assert.False(compilation.HasErrors);
+            Assert.AreEqual(2, compilation.Classes.Count);
+
+            var cls = compilation.Classes[0];
+            Assert.AreEqual("Calculator", cls.Name);
+            Assert.AreEqual(3, cls.Functions.Count);
+
+            {
+                var cppFunction = cls.Functions[0];
+                Assert.AreEqual("calculate", cppFunction.Name);
+                Assert.AreEqual(1, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "calculate(int) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = cls.Functions[1];
+                Assert.AreEqual("calculate", cppFunction.Name);
+                Assert.AreEqual(1, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "calculate(float) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            {
+                var cppFunction = cls.Functions[2];
+                Assert.AreEqual("calculate", cppFunction.Name);
+                Assert.AreEqual(2, cppFunction.Parameters.Count);
+                Assert.IsNotNull(cppFunction.BodySpan, "calculate(int, int) should have BodySpan");
+                Assert.Greater(cppFunction.BodySpan.Value.Start.Line, 0);
+                Assert.Greater(cppFunction.BodySpan.Value.End.Line, 0);
+                Assert.GreaterOrEqual(cppFunction.BodySpan.Value.End.Offset, cppFunction.BodySpan.Value.Start.Offset);
+            }
+
+            HashSet<int> startLines = new HashSet<int>();
+            foreach (var cls2 in compilation.Classes)
+            {
+                foreach (var function in cls2.Functions)
+                {
+                    Assert.True(startLines.Add(function.BodySpan.Value.Start.Line));
+                }
+            }
+        }
 
     }
 }

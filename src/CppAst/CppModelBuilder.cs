@@ -1549,11 +1549,81 @@ namespace CppAst
 
             //We need ignore the function define out in the class definition here(Otherwise it will has two same functions here~)!
             var semKind = cursor.SemanticParent.Kind;
-            if ((semKind == CXCursorKind.CXCursor_StructDecl || 
+            bool isMethodDefinedOutsideClass = (semKind == CXCursorKind.CXCursor_StructDecl || 
                 semKind == CXCursorKind.CXCursor_ClassDecl ||
                 semKind == CXCursorKind.CXCursor_ClassTemplate)
-                && cursor.LexicalParent != cursor.SemanticParent)
+                && cursor.LexicalParent != cursor.SemanticParent;
+
+            if (isMethodDefinedOutsideClass)
             {
+                // Find the previously created function in the class and update its BodySpan
+                if (cppClass != null)
+                {
+                    CppFunction existingFunction = null;
+
+                    // Collect parameter types from the current cursor for signature matching
+                    var currentParameterTypes = new List<CppType>();
+                    cursor.VisitChildren((argCursor, functionCursor, clientData) =>
+                    {
+                        if (argCursor.Kind == CXCursorKind.CXCursor_ParmDecl)
+                        {
+                            var paramType = GetCppType(argCursor.Type.Declaration, argCursor.Type, argCursor, clientData);
+                            currentParameterTypes.Add(paramType);
+                        }
+                        return CXChildVisitResult.CXChildVisit_Continue;
+                    }, new CXClientData((IntPtr)data));
+
+                    // Search in Functions, Constructors, and Destructors
+                    foreach (var func in cppClass.Functions)
+                    {
+                        if (func.Name == functionName && CompareParameterSignatures(func.Parameters, currentParameterTypes))
+                        {
+                            existingFunction = func;
+                            break;
+                        }
+                    }
+
+                    if (existingFunction == null)
+                    {
+                        foreach (var ctor in cppClass.Constructors)
+                        {
+                            if (ctor.Name == functionName && CompareParameterSignatures(ctor.Parameters, currentParameterTypes))
+                            {
+                                existingFunction = ctor;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (existingFunction == null)
+                    {
+                        foreach (var dtor in cppClass.Destructors)
+                        {
+                            if (dtor.Name == functionName && CompareParameterSignatures(dtor.Parameters, currentParameterTypes))
+                            {
+                                existingFunction = dtor;
+                                break;
+                            }
+                        }
+                    }
+
+                    // If we found the existing function, update its BodySpan
+                    if (existingFunction != null && cursor.IsDefinition)
+                    {
+                        cursor.VisitChildren((childCursor, functionCursor, clientData) =>
+                        {
+                            if (childCursor.Kind == CXCursorKind.CXCursor_CompoundStmt)
+                            {
+                                var bodyStart = GetSourceLocation(childCursor.Extent.Start);
+                                var bodyEnd = GetSourceLocation(childCursor.Extent.End);
+                                existingFunction.BodySpan = new CppSourceSpan(bodyStart, bodyEnd);
+                                return CXChildVisitResult.CXChildVisit_Break;
+                            }
+                            return CXChildVisitResult.CXChildVisit_Continue;
+                        }, new CXClientData((IntPtr)data));
+                    }
+                }
+
                 return null;
             }
 
@@ -1648,6 +1718,21 @@ namespace CppAst
 
             ParseAttributes(cursor, cppFunction, true);
             cppFunction.CallingConvention = GetCallingConvention(cursor.Type);
+
+            if (cursor.IsDefinition)
+            {
+                cursor.VisitChildren((childCursor, functionCursor, clientData) =>
+                {
+                    if (childCursor.Kind == CXCursorKind.CXCursor_CompoundStmt)
+                    {
+                        var bodyStart = GetSourceLocation(childCursor.Extent.Start);
+                        var bodyEnd = GetSourceLocation(childCursor.Extent.End);
+                        cppFunction.BodySpan = new CppSourceSpan(bodyStart, bodyEnd);
+                        return CXChildVisitResult.CXChildVisit_Break;
+                    }
+                    return CXChildVisitResult.CXChildVisit_Continue;
+                }, new CXClientData((IntPtr)data));
+            }
 
             int i = 0;
             cursor.VisitChildren((argCursor, functionCursor, clientData) =>
@@ -2479,6 +2564,27 @@ namespace CppAst
             }
             // Try to workaround anonymous types
             return $"{_rootContainerContext.NameContext}/{typeAsCString}{(cursor.IsAnonymous ? "/" + cursor.Hash : string.Empty)}";
+        }
+
+        private static bool CompareParameterSignatures(IList<CppParameter> parameters, IList<CppType> paramTypes)
+        {
+            if (parameters.Count != paramTypes.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var paramType = parameters[i].Type;
+                var typeFromCursor = paramTypes[i];
+
+                if (!paramType.Equals(typeFromCursor))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private class CppContainerContext

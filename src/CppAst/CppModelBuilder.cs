@@ -1561,10 +1561,22 @@ namespace CppAst
                 {
                     CppFunction existingFunction = null;
 
+                    // Collect parameter types from the current cursor for signature matching
+                    var currentParameterTypes = new List<CppType>();
+                    cursor.VisitChildren((argCursor, functionCursor, clientData) =>
+                    {
+                        if (argCursor.Kind == CXCursorKind.CXCursor_ParmDecl)
+                        {
+                            var paramType = GetCppType(argCursor.Type.Declaration, argCursor.Type, argCursor, clientData);
+                            currentParameterTypes.Add(paramType);
+                        }
+                        return CXChildVisitResult.CXChildVisit_Continue;
+                    }, new CXClientData((IntPtr)data));
+
                     // Search in Functions, Constructors, and Destructors
                     foreach (var func in cppClass.Functions)
                     {
-                        if (func.Name == functionName)
+                        if (func.Name == functionName && CompareParameterSignatures(func.Parameters, currentParameterTypes))
                         {
                             existingFunction = func;
                             break;
@@ -1575,7 +1587,7 @@ namespace CppAst
                     {
                         foreach (var ctor in cppClass.Constructors)
                         {
-                            if (ctor.Name == functionName)
+                            if (ctor.Name == functionName && CompareParameterSignatures(ctor.Parameters, currentParameterTypes))
                             {
                                 existingFunction = ctor;
                                 break;
@@ -1587,7 +1599,7 @@ namespace CppAst
                     {
                         foreach (var dtor in cppClass.Destructors)
                         {
-                            if (dtor.Name == functionName)
+                            if (dtor.Name == functionName && CompareParameterSignatures(dtor.Parameters, currentParameterTypes))
                             {
                                 existingFunction = dtor;
                                 break;
@@ -2552,6 +2564,27 @@ namespace CppAst
             }
             // Try to workaround anonymous types
             return $"{_rootContainerContext.NameContext}/{typeAsCString}{(cursor.IsAnonymous ? "/" + cursor.Hash : string.Empty)}";
+        }
+
+        private static bool CompareParameterSignatures(IList<CppParameter> parameters, IList<CppType> paramTypes)
+        {
+            if (parameters.Count != paramTypes.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < parameters.Count; i++)
+            {
+                var paramType = parameters[i].Type;
+                var typeFromCursor = paramTypes[i];
+
+                if (!paramType.Equals(typeFromCursor))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private class CppContainerContext

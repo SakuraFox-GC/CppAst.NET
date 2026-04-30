@@ -8,6 +8,8 @@
     <File Path="dotnet-releaser.toml" />
     <File Path="global.json" />
   </Folder>
+  <Project Path="../deps/ClangSharp/sources/ClangSharp/ClangSharp.csproj" />
+  <Project Path="../deps/ClangSharp/sources/ClangSharp/ClangSharp.Interop.csproj" />
   <Project Path="CppAst.Tests/CppAst.Tests.csproj" />
   <Project Path="CppAst/CppAst.csproj" />
 </Solution>

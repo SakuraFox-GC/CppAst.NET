@@ -1,0 +1,4 @@
+[submodule "deps/ClangSharp"]
+	path = deps/ClangSharp
+	url = https://github.com/SakuraFox-GC/ClangSharp.git
+	branch = v20_aot
